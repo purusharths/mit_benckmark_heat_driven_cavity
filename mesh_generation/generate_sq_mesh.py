@@ -75,8 +75,6 @@ if __name__ == '__main__':
     y_range = [0,8]
     n_x = create_point_kernel(size=xsize, alpha=0.01);
     n_y = create_point_kernel(size=ysize,start = 0, end = 8, alpha=0.02);
-    # cartesian_product = list(itertools.product(n_y,n_x))
-    # plt.scatter(*zip(*cartesian_product))
     cartesian_product =  cartesian_coord(n_x, n_y)
     num_sq_x = math.ceil((((xsize-1)*2)+1)/2) - 1
     total_sq = num_sq_x * (ysize-1)
