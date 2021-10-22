@@ -210,6 +210,12 @@ private:
 
   // Dof id:s for Dirichlet boundary conditions.
   std::vector< int > dirichlet_dofs_;
+
+  // @temp --- 
+  // Dof id:s for temp Dirichlet boundary conditions.
+  std::vector< int > temp_bound_dofs_; // dofs for lhs, rhs
+  // Dof values for temp Dirichlet boundary conditions.
+  std::vector< DataType > temp_bound_values_; 
   
   // Dof values for Dirichlet boundary conditions.
   std::vector< DataType > dirichlet_values_;
@@ -455,15 +461,21 @@ void FoilNavierStokes::compute_bc(DataType time)
   dirichlet_values_.clear();
                      
   VelocityDirichletBC bc_dirichlet(time,
-                                   params_["Equation"]["MaterialNumbers"]["Inflow"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["Outflow"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["SlipX"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["NoSlip"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["Foil1"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["Foil2"].get< int >(),
-                                   params_["Equation"]["InflowVelocityX"].get< DataType >());
+                                   params_["Equation"]["MaterialNumbers"]["Top"].get< int >(),
+                                   params_["Equation"]["MaterialNumbers"]["Bottom"].get< int >());
 
   compute_dirichlet_dofs_and_values(bc_dirichlet, space_, 0, dirichlet_dofs_, dirichlet_values_);
+
+  temp_bound_dofs_.clear();
+  temp_bound_values_.clear();
+
+  TemperatureDirichletBC bc_temperature(time,
+                                      //  params_["Equation"]["MaterialNumbers"]["Top"].get< int >(),
+                                      //  params_["Equation"]["MaterialNumbers"]["Bottom"].get< int >(),
+                                       params_["Equation"]["MaterialNumbers"]["Left"].get< int >(),
+                                       params_["Equation"]["MaterialNumbers"]["Right"].get< int >());
+  compute_dirichlet_dofs_and_values(bc_temperature, space_, 2, temp_bound_dofs_, temp_bound_values_);
+
 }
 
 // Assemble jacobian Matrix for Newton method for solving F(u) = 0
@@ -478,8 +490,8 @@ void FoilNavierStokes::EvalGrad(const VectorType &in,
   LocalFlowAssembler local_asm;
   local_asm.set_parameters(params_["TimeStepping"]["theta"].get< DataType >(),
                            params_["TimeStepping"]["dt"].get< DataType >(),
-                           params_["Equation"]["nu"].get< DataType >(), 
-                           params_["Equation"]["Fz"].get< DataType >());
+                           params_["Equation"]["Ra"].get< DataType >(), 
+                           params_["Equation"]["Pr"].get< DataType >());
                            
   // pass current Newton iterate to local assembler
   local_asm.set_newton_solution(&in);
@@ -517,8 +529,8 @@ void FoilNavierStokes::EvalFunc(const VectorType &in,
   LocalFlowAssembler local_asm;
   local_asm.set_parameters(params_["TimeStepping"]["theta"].get< DataType >(),
                            params_["TimeStepping"]["dt"].get< DataType >(),
-                           params_["Equation"]["nu"].get< DataType >(), 
-                           params_["Equation"]["Fz"].get< DataType >());
+                           params_["Equation"]["Ra"].get< DataType >(), 
+                           params_["Equation"]["Pr"].get< DataType >());
                            
   // pass current Newton iterate to local assembler
   local_asm.set_newton_solution(&in);
@@ -707,8 +719,8 @@ void FoilNavierStokes::compute_forces(VectorType &u,
                                    DataType &lift_force2) 
 {
   DataType mu = params_["Equation"]["nu"].get< DataType >() * 1.; //(density equals 1)
-  int obstacle1_mat_num = params_["Equation"]["MaterialNumbers"]["Foil1"].get< int >();
-  int obstacle2_mat_num = params_["Equation"]["MaterialNumbers"]["Foil2"].get< int >();
+  int obstacle1_mat_num = 0;//params_["Equation"]["MaterialNumbers"]["Foil1"].get< int >();
+  int obstacle2_mat_num = 0;//params_["Equation"]["MaterialNumbers"]["Foil2"].get< int >();
   
   u.Update();
 
@@ -733,32 +745,32 @@ void FoilNavierStokes::compute_forces(VectorType &u,
 
   // collect results from all parallel processes
   lift_force1 = 0.;
-  this->parcom_->sum(local_lift, lift_force1);
+  // this->parcom_->sum(local_lift, lift_force1);
   
   
   local_lift = 0.;
   local_drag = 0.;
   
-  ForceIntegral< DIM, LAD > int_drag2(mu, &u, 0, obstacle2_mat_num);
-  this->global_asm_.integrate_scalar_boundary(space_, int_drag2, local_drag);
+  // ForceIntegral< DIM, LAD > int_drag2(mu, &u, 0, obstacle2_mat_num);
+  // this->global_asm_.integrate_scalar_boundary(space_, int_drag2, local_drag);
 
   // collect results from all parallel processes
-  drag_force2 = 0.;
-  this->parcom_->sum(local_drag, drag_force2);
+  // drag_force2 = 0.;
+  // this->parcom_->sum(local_drag, drag_force2);
     
-  ForceIntegral< DIM, LAD > int_lift2(mu, &u, 1, obstacle2_mat_num);
-  this->global_asm_.integrate_scalar_boundary(space_, int_lift2, local_lift);
+  // ForceIntegral< DIM, LAD > int_lift2(mu, &u, 1, obstacle2_mat_num);
+  // this->global_asm_.integrate_scalar_boundary(space_, int_lift2, local_lift);
 
   // collect results from all parallel processes
-  lift_force2 = 0.;
-  this->parcom_->sum(local_lift, lift_force2);
+  // lift_force2 = 0.;
+  // this->parcom_->sum(local_lift, lift_force2);
   // ******************************************
   // END EXERCISE D
   
-  LOG_INFO("Force on foil 1", " drag = " << drag_force1 << " , lift = " << lift_force1
-            << ", lift / drag = " << lift_force1 / drag_force1);
-  LOG_INFO("Force on foil 2", " drag = " << drag_force2 << " , lift = " << lift_force2
-            << ", lift / drag = " << lift_force2 / drag_force2);
+  // LOG_INFO("Force on foil 1", " drag = " << drag_force1 << " , lift = " << lift_force1
+            // << ", lift / drag = " << lift_force1 / drag_force1);
+  // LOG_INFO("Force on foil 2", " drag = " << drag_force2 << " , lift = " << lift_force2
+            // << ", lift / drag = " << lift_force2 / drag_force2);
 }
 
 

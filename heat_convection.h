@@ -48,22 +48,11 @@ const int MASTER_RANK = 0;
 struct VelocityDirichletBC
 {
   VelocityDirichletBC(DataType time,
-                      int inflow_mat_number,
-                      int outflow_mat_number,
-                      int slipX_mat_number,
-                      int noslip_mat_number, 
-                      int foil1_mat_number,
-                      int foil2_mat_number,
-                      DataType inflow_vel_x)
+                      int top_mat_number,
+                      int bottom_mat_number)
   : time_(time), 
-  inflow_mat_num_ (inflow_mat_number),
-  outflow_mat_num_ (outflow_mat_number),
-  noslip_mat_num_ (noslip_mat_number),
-  slipX_mat_num_ (slipX_mat_number),
-  foil1_mat_num_ (foil1_mat_number),
-  foil2_mat_num_ (foil2_mat_number), 
-  inflow_vel_x_ (inflow_vel_x)
-  {}
+  top_mat_number_ (top_mat_number),
+  bottom_mat_number_ (bottom_mat_number)  {}
   
   void evaluate(const mesh::Entity &face,
                 const Vec< DIM, DataType> &pt_coord, 
@@ -75,21 +64,8 @@ struct VelocityDirichletBC
     // **********************************************
     // TODO exercise A
     DataType time_factor = 1.;
-    if (  material_number == noslip_mat_num_
-       || material_number == foil1_mat_num_
-       || material_number == foil2_mat_num_)
-    {
+    if (  material_number == top_mat_number_ || material_number == bottom_mat_number_) {
       vals.resize(DIM, 0.);
-    }
-    else if ( material_number == slipX_mat_num_ )
-    {
-      vals.resize(DIM, 0.);
-      vals[0] = inflow_vel_x_;
-    }
-    else if ( material_number == inflow_mat_num_ )
-    {
-      vals.resize(DIM, 0.);
-      vals[0] = inflow_vel_x_;
     }
     // END Exercise A
     // *********************************************
@@ -107,13 +83,65 @@ struct VelocityDirichletBC
     return v;
   }
   
-  int noslip_mat_num_;
-  int slipX_mat_num_;
-  int inflow_mat_num_;
-  int outflow_mat_num_;
-  int foil1_mat_num_;
-  int foil2_mat_num_;
+  int top_mat_number_;
+  int bottom_mat_number_;
   DataType inflow_vel_x_;
+  DataType time_;
+};
+// make changes
+// @@@ NOTE: should return/modify temp not velocity
+struct TemperatureDirichletBC
+{
+  TemperatureDirichletBC(DataType time,
+                      int lhs_mat_number,
+                      int rhs_mat_number)
+  : time_(time), 
+  lhs_mat_number_ (lhs_mat_number),
+  rhs_mat_number_ (rhs_mat_number)
+  {}
+  
+  void evaluate(const mesh::Entity &face,
+                const Vec< DIM, DataType> &pt_coord, 
+                std::vector<DataType> &vals) const 
+  {
+    const int material_number = face.get_material_number();
+    vals.clear();
+    
+    // **********************************************
+    // TODO exercise A
+    DataType time_factor = 1.;
+    if (  material_number == lhs_mat_number_){
+      vals.resize(1, 0.);
+      vals[0] = 0.5; // add .5 to temp
+    }
+
+    if (material_number == rhs_mat_number_){
+      vals.resize(1, 0.);
+      vals[0] = -0.5; // remove .5 to temp
+    }
+    // END Exercise A
+    // *********************************************
+  }
+    
+  size_t nb_comp() const {
+    return 1; // add 1 for temp
+  }
+  
+  size_t nb_func() const {
+    return 1;
+  }
+  
+  size_t iv2ind(size_t j, size_t v) const {
+    return v;
+  }
+  
+  int rhs_mat_number_;
+  int lhs_mat_number_;
+  // int inflow_mat_num_;
+  // int outflow_mat_num_;
+  // int foil1_mat_num_;
+  // int foil2_mat_num_;
+  // DataType inflow_vel_x_;
   DataType time_;
 };
 
@@ -122,10 +150,10 @@ class LocalFlowAssembler : private AssemblyAssistant< DIM, DataType >
 {
 public:
   
-  void set_parameters (DataType theta, DataType dt, DataType nu, DataType fz)
+  void set_parameters (DataType theta, DataType dt, DataType Ra, DataType Pr)
   {
-    this->nu_ = nu;
-    this->f_ = fz;
+    this->Ra = Ra;
+    this->Pr = Pr;
     this->dt_ = dt;
     this->theta_ = theta;
   }
@@ -162,6 +190,8 @@ public:
     
     // number of quadrature points
     const int num_q = this->num_quadrature_points();
+    DataType c1 = std::sqrt(Pr/Ra); // @TODO: crosscheck if the division is floating pt.
+    DataType c2 = 1.0 / std::sqrt(Pr*Ra);
     
     // loop over quadrature points
     for (int q = 0; q < num_q; ++q) 
@@ -217,6 +247,11 @@ public:
         // get test function values for pressure variable
         DataType phiP_i = this->Phi(i, q, DIM);
         Vec<DIM, DataType> DphiP_i = this->grad_Phi(i, q, DIM);
+
+        // get test function values for temperature variable
+        // @TODO change dim for vec<DIM, ... >??
+        DataType phiT_i = this->Phi(i,q,DIM+1);
+        Vec<DIM, DataType> DphiT_i = this->grad_Phi(i, q, DIM+1);
           
         // loop over trrial DOFs <-> trial function u 
         for (int j = 0; j < num_dof; ++j) 
@@ -237,6 +272,9 @@ public:
           DataType phiP_j = this->Phi(j, q, DIM);
           Vec<DIM, DataType> DphiP_j = this->grad_Phi(j, q, DIM);
 
+          // get ansatz function values for Temperature variable
+          DataType phiT_j = this->Phi(j, q, DIM+1);
+          Vec<DIM, DataType> DphiT_j = this->grad_Phi(j, q, DIM+1);
 
           // --------------------------------------------------------------------------
           // ----- start assembly of individual terms in variational formulation ------
@@ -254,7 +292,7 @@ public:
             // Navier Stokes
               
             l0 = dot(phiV_j, phiV_i);
-            l1 = this->nu_ * dot(DphiV_j, DphiV_i);
+            l1 = - c1 * dot(DphiV_j, DphiV_i);
 
             for (int v=0; v!= DIM; ++v)
             {
@@ -294,6 +332,40 @@ public:
             lm(i,j) += wq * l5 * dJ;
             // END EXERCISE A
           }
+
+          // velocity (test) - temperature
+          if (   this->first_dof_for_var(0) <= i && i < this->last_dof_for_var(DIM-1) 
+              && this->first_dof_for_var(DIM+1) <= j && j < this->last_dof_for_var(DIM+1)) {
+              // @TODO
+              // dot(grad theta, grad w)
+              // DataType l0 = -c2 * dot(DphiT_j, DphiV_i); //DphiT_j * trace(DphiV_i);//dot(DphiT_j, DphiV_i);
+              DataType temp = dot(dot(phiV_j, DphiT_j) , phiV_i);
+              lm(i,j) += wq * 0. * dJ;
+
+          }
+          // temperature - velocity
+
+          if (   this->first_dof_for_var(DIM+1) <= i && i < this->last_dof_for_var(DIM+1) 
+              && this->first_dof_for_var(0) <= j && j < this->last_dof_for_var(DIM-1)) {
+              // @TODO
+              // dot(theta_i, u_j)
+              DataType l0 = 0;//dot(phiV_j, phiT_i);
+              DataType l1 = 0;//-c2 * dot(DphiV_j, DphiT_i);
+              DataType l2, l3;
+
+              l2 = dot(dot(phiV_j, DphiT_j) , phiT_i);
+              lm(i,j) += wq * l0 + l1 + l2 + l3 * dJ;
+          }
+
+          // temperature - temperature
+          if (   this->first_dof_for_var(DIM+1) <= i && i < this->last_dof_for_var(DIM+1) 
+              && this->first_dof_for_var(DIM+1) <= j && j < this->last_dof_for_var(DIM+1)){
+                // @TODO
+              DataType l0 = phiT_j * phiT_i; //dot(phiT_j, phiT_i);
+              DataType l1 = -c2 * dot(DphiT_j, DphiT_i);
+              DataType l2; // = (phiV_j * trace(DphiT_j)) * phiT_i;
+              lm(i,j) += wq * l0 + l1 * dJ;                
+              }
         }
       }
     }
@@ -320,6 +392,8 @@ public:
     
     // number of quadrature points
     const int num_q = this->num_quadrature_points();
+    DataType c1 = std::sqrt(Pr/Ra); 
+    DataType c2 = 1.0 / std::sqrt(Pr*Ra);
     
     // loop over quadrature points
     for (int q = 0; q < num_q; ++q) 
@@ -376,22 +450,28 @@ public:
         DataType phiP_i = this->Phi(i, q, DIM);
         Vec<DIM, DataType> DphiP_i = this->grad_Phi(i, q, DIM);
 
+        // get test function values for temperature variable
+        DataType phiT_i = this->Phi(i, q, DIM+1);
+        Vec<DIM, DataType> DphiT_i = this->grad_Phi(i, q, DIM+1);
+
         // momentum equation
         if ( this->first_dof_for_var(0) <= i && i < this->last_dof_for_var(DIM-1) )
         {
           DataType l0 = 0.;
           DataType l1_n = 0.;
-          DataType l1_k = 0.;
+          DataType l1_k = 0.;          DataType phiT_j = this->Phi(j, q, DIM+1);
+1
           DataType l2_n = 0.;
           DataType l2_k = 0.;
           DataType lf = 0.;
           DataType lp = 0.;
+          DataType lt = 0.;
           
           // TODO EXERCISE B
           l0 = dot(vk - vn, phiV_i);
           
-          l1_k = this->nu_ * dot(Dvk, DphiV_i);
-          l1_n = this->nu_ * dot(Dvn, DphiV_i);
+          l1_k = c1 * dot(Dvk, DphiV_i);
+          l1_n = c1 * dot(Dvn, DphiV_i);
           
           lf = -dot(this->force(this->x(q)), phiV_i);
           lp = - pk * trace(DphiV_i); 
@@ -406,6 +486,8 @@ public:
             }
           }
 
+          // lt = dot(phiT_j, phiV_i);
+
           lv[i] += wq * (l0 + dt_ * theta_ * (l1_k + l2_k) + dt_ * (1. - theta_) * (l1_n + l2_n) + dt_ * (lp + lf) ) * dJ;
           // END EXERCISE B
         }
@@ -417,6 +499,17 @@ public:
           lv[i] += wq * phiP_i * trace(Dvk) * dJ;
           // END EXERCISE B 
         }
+
+        // temperature equation
+        if ( this->first_dof_for_var(DIM+1) <= i && i < this->last_dof_for_var(DIM+1)) 
+        {
+          // @TODO
+          // DataType lt_0 = - c2 * (DphiT_j, DphiT_i);
+          // lv[i] += wq * lt_0 * dJ;
+
+        }        
+
+
       } 
     }
   }
@@ -435,7 +528,7 @@ public:
     // compute velocity solution values of previous time step u_(n-1) at each quadrature point xq:
     // sol_ts_[v][q] = u_(n-1)_v (xq)
     // v = velocity component
-    for (int v=0; v!=DIM+1; ++v)
+    for (int v=0; v!=DIM+2; ++v) // @TODO change to DIM+2
     {
       sol_ns_[v].clear();
       grad_sol_ns_[v].clear();
@@ -444,7 +537,7 @@ public:
       this->evaluate_fe_function_gradients(*prev_newton_sol_, v, grad_sol_ns_[v]);
       
     }
-    for (int v=0; v!= DIM; ++v)
+    for (int v=0; v!= DIM+2; ++v) // @TODO change to DIM+2
     {
       this->sol_vel_ts_[v].clear();
       this->grad_sol_vel_ts_[v].clear();
@@ -452,7 +545,7 @@ public:
       this->evaluate_fe_function_gradients(*prev_time_sol_, v, grad_sol_vel_ts_[v]);
     }
   }
-  
+  // TODO check if required to change these as well?
   FunctionValues< DataType > sol_ns_[DIM+1]; // solution at previous newton step
   FunctionValues< Vec< DIM, DataType > > grad_sol_ns_[DIM+1]; // gradient of solution at previous newton step
   
@@ -462,12 +555,15 @@ public:
   FunctionValues< DataType > sol_vel_ts_[DIM];               // velocity solution at previous time step
   FunctionValues< Vec< DIM, DataType > > grad_sol_vel_ts_[DIM];  // gradient of velocity solution at previous time step
   
+  DataType Ra;
+  DataType Pr;
   DataType theta_;
   DataType dt_;
   DataType nu_;
   DataType f_;
 };
 
+// @TODO Remove Force integral
 template < int DIM, class LAD >
 class ForceIntegral : private AssemblyAssistant< DIM, typename LAD::DataType > 
 {

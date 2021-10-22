@@ -11,15 +11,16 @@
   </FESpace>
   <Equation>
     <nu>1e-1</nu>
+    <Pr>0.71</Pr>
+    <Ra>1e-2</Ra>
     <Fz>-1</Fz>
     <InflowVelocityX>1.</InflowVelocityX>
     <MaterialNumbers>
-        <Inflow>22</Inflow>     <!-- inflow bc on left half circle -->
-        <Outflow>21</Outflow>   <!-- free bc on right bdy -->
-        <SlipX>11</SlipX>       <!-- top / bottom (add / remove '-' to switch between SlipX and NoSlip BC on top and bottom bdy --> 
-        <NoSlip>-11</NoSlip>    <!-- top / bottom (add / remove '-' to switch between SlipX and NoSlip BC on top and bottom bdy -->
-        <Foil1>9</Foil1>         <!-- no slip on obstacle -->
-        <Foil2>10</Foil2>         <!-- no slip on obstacle -->
+        <!-- x.x.x.x.x..x.x.x.x.x -->
+        <Top>12</Top>    <!-- Top part of the no slip boundary -->
+        <Bottom>11</Bottom> <!-- Bottom part of the no slip boundary -->
+        <Left>14</Left> <!-- Left part of the thermal boundary -->
+        <Right>13</Right> <!-- Right part of the thermal boundary -->
     </MaterialNumbers>
     <PressureZeroAverage>0</PressureZeroAverage>
   </Equation>
