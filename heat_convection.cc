@@ -361,6 +361,7 @@ void FoilNavierStokes::prepare_system()
   std::vector< int > fe_params(nb_fe_var);
   fe_params[0] = velocity_fe_degree;
   fe_params[1] = pressure_fe_degree;
+  fe_params[2] = pressure_fe_degree;
   
   // assign types of FE 
   std::vector< FEType > fe_ansatz (nb_fe_var);
@@ -550,13 +551,13 @@ void FoilNavierStokes::EvalFunc(const VectorType &in,
 
 void FoilNavierStokes::solve_nonlinear_system() 
 {   
-  //sol_.CloneFrom(sol_prev_);
-  // apply BC to initial solution
-  //if (!dirichlet_dofs_.empty()) 
-  //{
-    // correct solution with dirichlet BC
+  // sol_.CloneFrom(sol_prev_);
+  // // apply BC to initial solution
+  // if (!dirichlet_dofs_.empty()) 
+  // {
+  //   // correct solution with dirichlet BC
   //  sol_.SetValues(vec2ptr(dirichlet_dofs_), dirichlet_dofs_.size(), vec2ptr(dirichlet_values_));
-  //}
+  // }
   
   // solve single nonlinear system
   this->rhs_.Zeros();
