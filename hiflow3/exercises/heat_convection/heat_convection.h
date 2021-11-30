@@ -305,7 +305,7 @@ public:
             // Navier Stokes
 
             l0 = dot(phiV_j, phiV_i);         // check
-            l1 = -c1 * dot(DphiV_j, DphiV_i); // check
+            l1 = c1 * dot(DphiV_j, DphiV_i); // check
 
             for (int v = 0; v != DIM; ++v)
             {
@@ -365,7 +365,13 @@ public:
             DataType l7 = phiT_j * phiT_i;
             // c2 (div theta, div z)
             DataType l8 = c2 * dot(DphiT_j, DphiT_i);
-            lm(i, j) += wq * ((l7 / dt_) + l8) * dJ;
+            DataType l9 = 0;
+              for (int d = 0; d != DIM; ++d)
+              { // change DPhiV_j
+                // v_k * grad(theta)^T * z
+                l9 += vk[d] * DphiT_j[d] * phiT_i; // check
+              }
+            lm(i, j) += wq * ((l7 / dt_) + l8 + l9) * dJ;
           }
 
           // temperature - velocity
@@ -381,14 +387,13 @@ public:
               for (int d = 0; d != DIM; ++d)
               { // change DPhiV_j
                 // v_k * grad(theta)^T * z
-                l9 += vk[d] * DphiT_j[d] * phiT_i; // check
-
+                // l9 += vk[d] * DphiT_j[d] * phiT_i; // check
                 // v * grad(theta_k)^T * z
                 l10 += phiV_j[d] * Dtk[d] * phiT_i; // check
               }
             // }
 
-            lm(i, j) += wq * (l9+l10) * dJ;
+            lm(i, j) += wq * (l10) * dJ;
           }
         }
       }
@@ -527,7 +532,7 @@ public:
 
           // lt = dot(phiT_j, phiV_i);
 
-          lv[i] += wq * ((l0/dt_) + theta_ * (l1_k + l2_k) + dt_ * (lp + lf)) * dJ;
+          lv[i] += wq * ((l0/dt_) + theta_ * (l1_k + l2_k) + (lp + lf)) * dJ;
           
           // Crank Nikolson :
           // l1_n = c1 * dot(Dvn, DphiV_i);
