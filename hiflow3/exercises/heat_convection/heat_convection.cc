@@ -463,7 +463,9 @@ void FoilNavierStokes::compute_bc(DataType time)
                      
   VelocityDirichletBC bc_dirichlet(time,
                                    params_["Equation"]["MaterialNumbers"]["Top"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["Bottom"].get< int >());
+                                   params_["Equation"]["MaterialNumbers"]["Bottom"].get< int >(),
+                                   params_["Equation"]["MaterialNumbers"]["Left"].get< int >(),
+                                   params_["Equation"]["MaterialNumbers"]["Right"].get< int >());                                
 
   compute_dirichlet_dofs_and_values(bc_dirichlet, space_, 0, dirichlet_dofs_, dirichlet_values_);
 

@@ -49,10 +49,14 @@ struct VelocityDirichletBC
 {
   VelocityDirichletBC(DataType time,
                       int top_mat_number,
-                      int bottom_mat_number)
+                      int bottom_mat_number,
+                      int lhs_mat_number, 
+                      int rhs_mat_number)
       : time_(time),
         top_mat_number_(top_mat_number),
-        bottom_mat_number_(bottom_mat_number) {}
+        bottom_mat_number_(bottom_mat_number),
+        lhs_mat_number_(lhs_mat_number),
+        rhs_mat_number_(rhs_mat_number) {}
 
   void evaluate(const mesh::Entity &face,
                 const Vec<DIM, DataType> &pt_coord,
@@ -64,7 +68,8 @@ struct VelocityDirichletBC
     // **********************************************
     // TODO exercise A
     // DataType time_factor = 1.;
-    if (material_number == top_mat_number_ || material_number == bottom_mat_number_)
+    if (material_number == top_mat_number_ || material_number == bottom_mat_number_
+    || material_number == lhs_mat_number_ || material_number == rhs_mat_number_)
     {
       vals.resize(DIM, 0.);
     }
@@ -89,6 +94,8 @@ struct VelocityDirichletBC
 
   int top_mat_number_;
   int bottom_mat_number_;
+  int lhs_mat_number_;
+  int rhs_mat_number_;
   DataType inflow_vel_x_;
   DataType time_;
 };
