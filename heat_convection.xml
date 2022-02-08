@@ -25,7 +25,7 @@
     <PressureZeroAverage>0</PressureZeroAverage>
   </Equation>
   <TimeStepping>
-    <T>0.05</T>
+    <T>0.55</T>
     <dt>0.005</dt>
     <theta>1.0</theta>
   </TimeStepping>

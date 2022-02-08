@@ -17,6 +17,8 @@
 
 #include "heat_convection.h"
 
+
+
 #define ILUPP
 
 #ifdef WITH_GPERF
@@ -133,6 +135,8 @@ private:
 
   // setup dirichlet BC
   void compute_bc(DataType time);
+
+  void prepare_ic(DataType& time);
   
    // assembler routines for Jacobian and residual in Newton's method
   void EvalGrad(const VectorType &in, MatrixType *out); 
@@ -455,6 +459,40 @@ void FoilNavierStokes::prepare_system()
 }
 
 
+void FoilNavierStokes::prepare_ic(DataType& time){
+  // DataType temp_high   = params_["Boundary"]["Temperature"]["HighVal"].get< DataType >();
+  // DataType temp_low    = params_["Boundary"]["Temperature"]["LowVal"].get< DataType >();
+  DataType temp_high   = 0.5;
+  DataType temp_low    = -0.5;
+
+  LOG_INFO ("*** IC ***", "Applying initial condition");
+
+  heatConvectionICtemp<DataType, DIM> ic_temp (temp_high, temp_low);// (temp_high, temp_low);
+  sol_.Zeros();
+  FeInterNodal<DataType, DIM, heatConvectionICtemp<DataType, DIM> > fe_inter (this->space_, &ic_temp, 2);
+  fe_inter.interpolate (this->sol_);
+  // if (!dirichlet_dofs_.empty())
+  // {
+  //   sol_.SetValues(vec2ptr(dirichlet_dofs_), dirichlet_dofs_.size(), vec2ptr(dirichlet_values_));
+  // }
+  // sol_.Update();
+  // this->prev_sol_.CloneFrom(this->sol_);
+  
+  // visualize(0);
+  // this->ts_ = 1;
+
+  // // apply BC to initial solution
+  // if (!dirichlet_dofs_.empty())
+  // {
+  //   sol_.SetValues(vec2ptr(dirichlet_dofs_), dirichlet_dofs_.size(), vec2ptr(dirichlet_values_));
+  // }
+  // sol_.Update();
+  // this->prev_sol_.CloneFrom(this->sol_);
+  
+  // visualize(0);
+  // this->ts_ = 1;
+}
+
 void FoilNavierStokes::compute_bc(DataType time)
 {
   // Compute Dirichlet BC dofs and values using known exact solution.
@@ -463,7 +501,9 @@ void FoilNavierStokes::compute_bc(DataType time)
                      
   VelocityDirichletBC bc_dirichlet(time,
                                    params_["Equation"]["MaterialNumbers"]["Top"].get< int >(),
-                                   params_["Equation"]["MaterialNumbers"]["Bottom"].get< int >());
+                                   params_["Equation"]["MaterialNumbers"]["Bottom"].get< int >(),
+                                   params_["Equation"]["MaterialNumbers"]["Left"].get< int >(),
+                                   params_["Equation"]["MaterialNumbers"]["Right"].get< int >());                                
 
   compute_dirichlet_dofs_and_values(bc_dirichlet, space_, 0, dirichlet_dofs_, dirichlet_values_);
 
@@ -503,9 +543,11 @@ void FoilNavierStokes::EvalGrad(const VectorType &in,
   this->global_asm_.assemble_matrix(this->space_, local_asm, *out);
   
   // Correct Dirichlet dofs.
-  if (!this->dirichlet_dofs_.empty()) 
+  if (!this->dirichlet_dofs_.empty() || !this->temp_bound_dofs_.empty()) 
   {
     out->diagonalize_rows(vec2ptr(this->dirichlet_dofs_), this->dirichlet_dofs_.size(), 1.0);
+    out->diagonalize_rows(vec2ptr(this->temp_bound_dofs_), this->temp_bound_dofs_.size(), 1.0);
+
   }
   
   // update matrix factorization, used in preconditioner
@@ -542,10 +584,13 @@ void FoilNavierStokes::EvalFunc(const VectorType &in,
   this->global_asm_.assemble_vector(this->space_, local_asm, *out);
   
   // Correct Dirichlet dofs -- set Dirichlet dofs to 0
-  if (!this->dirichlet_dofs_.empty()) 
+  if (!this->dirichlet_dofs_.empty() || !this->temp_bound_dofs_.empty()) 
   {
     std::vector< DataType > zeros(this->dirichlet_dofs_.size(), 0.);
     out->SetValues(vec2ptr(this->dirichlet_dofs_), this->dirichlet_dofs_.size(), vec2ptr(zeros));
+
+    std::vector< DataType > zeros_temp(this->temp_bound_dofs_.size(), 0.);
+    out->SetValues(vec2ptr(this->temp_bound_dofs_), this->temp_bound_values_.size(), vec2ptr(zeros_temp));    
   }
 }
 
@@ -575,16 +620,27 @@ void FoilNavierStokes::time_loop()
   DataType dt = params_["TimeStepping"]["dt"].get< DataType >();
   DataType T = params_["TimeStepping"]["T"].get< DataType >();
   DataType time = 0.;
+
+  if(time == 0){
+    this->prepare_ic(time);
+  }
   
   CSVWriter<DataType> csv_writer ("pp_values.csv");
   
+  
   this->compute_bc(0.);
-  if (!dirichlet_dofs_.empty()) 
+  if (!dirichlet_dofs_.empty() || !this->temp_bound_dofs_.empty())
   {
     sol_prev_.SetValues(vec2ptr(dirichlet_dofs_), dirichlet_dofs_.size(), vec2ptr(dirichlet_values_));
     sol_.SetValues(vec2ptr(dirichlet_dofs_), dirichlet_dofs_.size(), vec2ptr(dirichlet_values_));
+
+    sol_prev_.SetValues(vec2ptr(temp_bound_dofs_), temp_bound_dofs_.size(), vec2ptr(temp_bound_values_));
+    sol_.SetValues(vec2ptr(temp_bound_dofs_), temp_bound_dofs_.size(), vec2ptr(temp_bound_values_));
   }
+  sol_.Update();
+  sol_prev_.CopyFrom(sol_);
   this->visualize(0);
+  time = time+dt;
   
   
   while (time < T)
@@ -613,21 +669,21 @@ void FoilNavierStokes::time_loop()
     LOG_INFO ("", "L2(div) = " << l2_div );
     cur_pp_vals[1] = l2_div;
     
-    DataType lift1, lift2;
-    DataType drag1, drag2;
-    this->compute_forces(sol_, drag1, lift1, drag2, lift2);
-    cur_pp_vals[2] = drag1;
-    cur_pp_vals[3] = lift1;
-    cur_pp_vals[4] = lift1 / drag1;
+    // DataType lift1, lift2;
+    // DataType drag1, drag2;
+    // this->compute_forces(sol_, drag1, lift1, drag2, lift2);
+    // cur_pp_vals[2] = drag1;
+    // cur_pp_vals[3] = lift1;
+    // cur_pp_vals[4] = lift1 / drag1;
 
-    cur_pp_vals[5] = drag2;
-    cur_pp_vals[6] = lift2;
-    cur_pp_vals[7] = lift2 / drag2;
+    // cur_pp_vals[5] = drag2;
+    // cur_pp_vals[6] = lift2;
+    // cur_pp_vals[7] = lift2 / drag2;
         
-    if (rank_ == 0)
-    {
-      csv_writer.write(cur_pp_vals);
-    }
+    // if (rank_ == 0)
+    // {
+    //   csv_writer.write(cur_pp_vals);
+    // }
   }
 }
 
@@ -668,6 +724,7 @@ void FoilNavierStokes::visualize(int time_step)
     visu.visualize(sol_, DIM-1, "v_z");
   }
   visu.visualize(sol_, DIM, "p");
+  visu.visualize(sol_, DIM+1, "T");
   
   // visualize some mesh data
   visu.visualize_cell_data(remote_index, "_remote_index_");

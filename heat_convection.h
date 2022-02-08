@@ -49,10 +49,14 @@ struct VelocityDirichletBC
 {
   VelocityDirichletBC(DataType time,
                       int top_mat_number,
-                      int bottom_mat_number)
+                      int bottom_mat_number,
+                      int lhs_mat_number, 
+                      int rhs_mat_number)
       : time_(time),
         top_mat_number_(top_mat_number),
-        bottom_mat_number_(bottom_mat_number) {}
+        bottom_mat_number_(bottom_mat_number),
+        lhs_mat_number_(lhs_mat_number),
+        rhs_mat_number_(rhs_mat_number) {}
 
   void evaluate(const mesh::Entity &face,
                 const Vec<DIM, DataType> &pt_coord,
@@ -64,7 +68,8 @@ struct VelocityDirichletBC
     // **********************************************
     // TODO exercise A
     // DataType time_factor = 1.;
-    if (material_number == top_mat_number_ || material_number == bottom_mat_number_)
+    if (material_number == top_mat_number_ || material_number == bottom_mat_number_
+    || material_number == lhs_mat_number_ || material_number == rhs_mat_number_)
     {
       vals.resize(DIM, 0.);
     }
@@ -89,6 +94,8 @@ struct VelocityDirichletBC
 
   int top_mat_number_;
   int bottom_mat_number_;
+  int lhs_mat_number_;
+  int rhs_mat_number_;
   DataType inflow_vel_x_;
   DataType time_;
 };
@@ -117,13 +124,15 @@ struct TemperatureDirichletBC
     // DataType time_factor = 1.;
     if (material_number == lhs_mat_number_)
     {
-      vals.resize(1, 0.);
+      // vals.resize(1, 0.);
+      vals.resize(DIM, 0.);
       vals[0] = 0.5; //  .5 to temp
     }
 
     if (material_number == rhs_mat_number_)
     {
-      vals.resize(1, 0.);
+      // vals.resize(1, 0.);
+      vals.resize(DIM, 0.);
       vals[0] = -0.5; // -.5 to temp
     }
     // END Exercise A
@@ -154,6 +163,56 @@ struct TemperatureDirichletBC
   // DataType inflow_vel_x_;
   DataType time_;
 };
+
+
+// Initial condition 
+template <class DataType, int DIM>
+struct heatConvectionICtemp// NatConvMixedICTemp
+{
+  heatConvectionICtemp(DataType high_temp, DataType low_temp)
+  : high_temp_(0.5),
+  low_temp_(-0.5)
+  {
+  }
+  
+  size_t nb_func() const 
+  {
+    return 1;
+  }
+  
+  size_t nb_comp() const 
+  {
+    return 1;
+  }
+  
+  size_t weight_size() const 
+  {
+    return nb_func() * nb_comp();
+  }
+  
+  inline size_t iv2ind (size_t i, size_t var ) const 
+  {
+    assert (i==0);
+    assert (var < DIM);
+    return var;
+  }
+
+  void evaluate(const Entity&, const Vec<DIM, DataType> & x, std::vector<DataType>& vals) const
+  {
+    assert (DIM >= 2);
+    vals.clear();
+    vals.resize (this->nb_comp(), 0.);
+    
+    vals[0] = (1. - x[0]) * high_temp_ + x[0] * low_temp_; 
+  }
+   
+  DataType high_temp_;
+  DataType low_temp_;
+  
+};
+
+
+
 
 // Functor used for the local assembly of the stiffness matrix and load vector.
 class LocalFlowAssembler : private AssemblyAssistant<DIM, DataType>
@@ -303,7 +362,7 @@ public:
             // Navier Stokes
 
             l0 = dot(phiV_j, phiV_i);         // check
-            l1 = -c1 * dot(DphiV_j, DphiV_i); // check
+            l1 = c1 * dot(DphiV_j, DphiV_i); // check
 
             for (int v = 0; v != DIM; ++v)
             {
@@ -363,7 +422,13 @@ public:
             DataType l7 = phiT_j * phiT_i;
             // c2 (div theta, div z)
             DataType l8 = c2 * dot(DphiT_j, DphiT_i);
-            lm(i, j) += wq * ((l7 / dt_) + l8) * dJ;
+            DataType l9 = 0;
+              for (int d = 0; d != DIM; ++d)
+              { // change DPhiV_j
+                // v_k * grad(theta)^T * z
+                l9 += vk[d] * DphiT_j[d] * phiT_i; // check
+              }
+            lm(i, j) += wq * ((l7 / dt_) + l8 + l9) * dJ;
           }
 
           // temperature - velocity
@@ -379,14 +444,13 @@ public:
               for (int d = 0; d != DIM; ++d)
               { // change DPhiV_j
                 // v_k * grad(theta)^T * z
-                l9 += vk[d] * DphiT_j[d] * phiT_i; // check
-
+                // l9 += vk[d] * DphiT_j[d] * phiT_i; // check
                 // v * grad(theta_k)^T * z
                 l10 += phiV_j[d] * Dtk[d] * phiT_i; // check
               }
             // }
 
-            lm(i, j) += wq * (l9+l10) * dJ;
+            lm(i, j) += wq * (l10) * dJ;
           }
         }
       }
@@ -525,7 +589,7 @@ public:
 
           // lt = dot(phiT_j, phiV_i);
 
-          lv[i] += wq * ((l0/dt_) + theta_ * (l1_k + l2_k) + dt_ * (lp + lf)) * dJ;
+          lv[i] += wq * ((l0/dt_) + theta_ * (l1_k + l2_k) + (lp + lf)) * dJ;
           
           // Crank Nikolson :
           // l1_n = c1 * dot(Dvn, DphiV_i);
